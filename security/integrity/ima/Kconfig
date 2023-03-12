@@ -310,3 +310,20 @@ config IMA_APPRAISE_SIGNED_INIT
 	default n
 	help
 	   This option requires user-space init to be signed.
+
+# Core Platform Configuration Register
+config IMA_FPCR
+    bool "File-based Platform Configuration Register"
+    default n
+    select IMA
+    help
+      Enable fpcr
+
+config FPCR_BIND_PCR_INDEX
+    int 
+    range 11 16
+    default 11
+    depends on IMA_FPCR
+    help
+        set the pcr index for fpcr
+

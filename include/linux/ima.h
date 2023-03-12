@@ -31,14 +31,14 @@ extern void ima_add_kexec_buffer(struct kimage *image);
 
 #if (defined(CONFIG_X86) && defined(CONFIG_EFI)) || defined(CONFIG_S390)
 extern bool arch_ima_get_secureboot(void);
-extern const char * const *arch_get_ima_policy(void);
+extern const char *const *arch_get_ima_policy(void);
 #else
 static inline bool arch_ima_get_secureboot(void)
 {
 	return false;
 }
 
-static inline const char * const *arch_get_ima_policy(void)
+static inline const char *const *arch_get_ima_policy(void)
 {
 	return NULL;
 }
@@ -90,21 +90,24 @@ static inline void ima_post_path_mknod(struct dentry *dentry)
 	return;
 }
 
-static inline void ima_kexec_cmdline(const void *buf, int size) {}
+static inline void ima_kexec_cmdline(const void *buf, int size)
+{
+}
 #endif /* CONFIG_IMA */
 
 #ifndef CONFIG_IMA_KEXEC
 struct kimage;
 
 static inline void ima_add_kexec_buffer(struct kimage *image)
-{}
+{
+}
 #endif
 
 #ifdef CONFIG_IMA_APPRAISE
 extern bool is_ima_appraise_enabled(void);
 extern void ima_inode_post_setattr(struct dentry *dentry);
 extern int ima_inode_setxattr(struct dentry *dentry, const char *xattr_name,
-		       const void *xattr_value, size_t xattr_value_len);
+			      const void *xattr_value, size_t xattr_value_len);
 extern int ima_inode_removexattr(struct dentry *dentry, const char *xattr_name);
 #else
 static inline bool is_ima_appraise_enabled(void)
@@ -140,4 +143,29 @@ static inline bool ima_appraise_signature(enum kernel_read_file_id func)
 	return false;
 }
 #endif /* CONFIG_IMA_APPRAISE && CONFIG_INTEGRITY_TRUSTED_KEYRING */
+
+#ifdef CONFIG_IMA_FPCR
+struct ima_file_label;
+
+extern void ima_file_label_free(struct ima_file_label *flabel);
+extern int ima_fpcr_create_open(struct file *file);
+extern int ima_fpcr_create_read(struct file *file);
+extern int ima_fpcr_create_write(struct file *file);
+extern struct ima_file_label *ima_fpcr_create_close_1(struct file *file);
+extern int ima_fpcr_create_close_2(struct ima_file_label *flabel);
+extern int ima_fpcr_create_sync(struct file *file);
+extern int ima_fpcr_create_fxattr(struct file *file);
+extern int ima_fpcr_create_ftruncate(struct file *file);
+extern int ima_fpcr_create_lseek(struct file *file);
+extern int ima_fpcr_create_fcntl(struct file *file);
+extern int ima_fpcr_create_fstat(struct file *file);
+extern int ima_fpcr_create_mmap(struct file *file);
+extern int ima_fpcr_create_rename(struct path *path);
+extern int ima_fpcr_create_truncate(struct path *path);
+extern struct ima_file_label *ima_fpcr_create_unlink_1(struct path *path);
+extern int ima_fpcr_create_unlink_2(struct ima_file_label *flabel);
+extern int ima_fpcr_create_link(struct path *path);
+extern unsigned int ima_fpcr_get_id(struct ima_file_label *flabel);
+#endif /* CONFIG_IMA_FPCR */
+
 #endif /* _LINUX_IMA_H */

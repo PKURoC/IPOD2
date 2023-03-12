@@ -12,3 +12,7 @@ ima-$(CONFIG_IMA_APPRAISE) += ima_appraise.o
 ima-$(CONFIG_IMA_APPRAISE_MODSIG) += ima_modsig.o
 ima-$(CONFIG_HAVE_IMA_KEXEC) += ima_kexec.o
 obj-$(CONFIG_IMA_BLACKLIST_KEYRING) += ima_mok.o
+
+ima-$(CONFIG_IMA_FPCR) += ima_fpcr.o
+ima-$(CONFIG_IMA_FPCR) += ima_pdd.o
+ima-$(CONFIG_IMA_FPCR) += merkle_tree.o

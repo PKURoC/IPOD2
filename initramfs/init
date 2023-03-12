@@ -1,0 +1,8 @@
+#!/bin/busybox sh
+mount -t proc none /proc
+mount -t sysfs none /sys
+mount -t securityfs securityfs /sys/kernel/security
+
+grep -v "^#" /etc/ima_policy > /sys/kernel/security/ima/policy
+
+exec /sbin/init

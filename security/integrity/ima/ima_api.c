@@ -46,7 +46,8 @@ int ima_alloc_init_template(struct ima_event_data *event_data,
 		template_desc = ima_template_desc_current();
 
 	*entry = kzalloc(struct_size(*entry, template_data,
-				     template_desc->num_fields), GFP_NOFS);
+				     template_desc->num_fields),
+			 GFP_NOFS);
 	if (!*entry)
 		return -ENOMEM;
 
@@ -88,9 +89,9 @@ out:
  *
  * Returns 0 on success, error code otherwise
  */
-int ima_store_template(struct ima_template_entry *entry,
-		       int violation, struct inode *inode,
-		       const unsigned char *filename, int pcr)
+int ima_store_template(struct ima_template_entry *entry, int violation,
+		       struct inode *inode, const unsigned char *filename,
+		       int pcr)
 {
 	static const char op[] = "add_template_measure";
 	static const char audit_cause[] = "hashing_error";
@@ -111,8 +112,8 @@ int ima_store_template(struct ima_template_entry *entry,
 						   num_fields, &hash.hdr);
 		if (result < 0) {
 			integrity_audit_msg(AUDIT_INTEGRITY_PCR, inode,
-					    template_name, op,
-					    audit_cause, result, 0);
+					    template_name, op, audit_cause,
+					    result, 0);
 			return result;
 		}
 		memcpy(entry->digest, hash.hdr.digest, hash.hdr.length);
@@ -130,8 +131,8 @@ int ima_store_template(struct ima_template_entry *entry,
  * value is invalidated.
  */
 void ima_add_violation(struct file *file, const unsigned char *filename,
-		       struct integrity_iint_cache *iint,
-		       const char *op, const char *cause)
+		       struct integrity_iint_cache *iint, const char *op,
+		       const char *cause)
 {
 	struct ima_template_entry *entry;
 	struct inode *inode = file_inode(file);
@@ -150,13 +151,19 @@ void ima_add_violation(struct file *file, const unsigned char *filename,
 		result = -ENOMEM;
 		goto err_out;
 	}
-	result = ima_store_template(entry, violation, inode,
-				    filename, CONFIG_IMA_MEASURE_PCR_IDX);
+	/* #ifdef CONFIG_IMA_FPCR */
+	/* 	result = ima_fpcr_store_template(entry, violation, inode, */
+	/* 				    filename, CONFIG_IMA_MEASURE_PCR_IDX, FPCR_NULL_ID); */
+	/*     printk("[fpcr test] exit ima_fpcr_store_template in %s with %d", __FUNCTION__, result); */
+	/* #else */
+	result = ima_store_template(entry, violation, inode, filename,
+				    CONFIG_IMA_MEASURE_PCR_IDX);
+	/* #endif */
 	if (result < 0)
 		ima_free_template_entry(entry);
 err_out:
-	integrity_audit_msg(AUDIT_INTEGRITY_PCR, inode, filename,
-			    op, cause, result, 0);
+	integrity_audit_msg(AUDIT_INTEGRITY_PCR, inode, filename, op, cause,
+			    result, 0);
 }
 
 /**
@@ -268,9 +275,8 @@ out:
 		if (file->f_flags & O_DIRECT)
 			audit_cause = "failed(directio)";
 
-		integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode,
-				    filename, "collect_data", audit_cause,
-				    result, 0);
+		integrity_audit_msg(AUDIT_INTEGRITY_DATA, inode, filename,
+				    "collect_data", audit_cause, result, 0);
 	}
 	return result;
 }
@@ -290,8 +296,8 @@ out:
  *
  * Must be called with iint->mutex held.
  */
-void ima_store_measurement(struct integrity_iint_cache *iint,
-			   struct file *file, const unsigned char *filename,
+void ima_store_measurement(struct integrity_iint_cache *iint, struct file *file,
+			   const unsigned char *filename,
 			   struct evm_ima_xattr_data *xattr_value,
 			   int xattr_len, const struct modsig *modsig, int pcr,
 			   struct ima_template_desc *template_desc)
@@ -320,8 +326,8 @@ void ima_store_measurement(struct integrity_iint_cache *iint,
 
 	result = ima_alloc_init_template(&event_data, &entry, template_desc);
 	if (result < 0) {
-		integrity_audit_msg(AUDIT_INTEGRITY_PCR, inode, filename,
-				    op, audit_cause, result, 0);
+		integrity_audit_msg(AUDIT_INTEGRITY_PCR, inode, filename, op,
+				    audit_cause, result, 0);
 		return;
 	}
 
@@ -353,8 +359,7 @@ void ima_audit_measurement(struct integrity_iint_cache *iint,
 		hex_byte_pack(hash + (i * 2), iint->ima_hash->digest[i]);
 	hash[i * 2] = '\0';
 
-	ab = audit_log_start(audit_context(), GFP_KERNEL,
-			     AUDIT_INTEGRITY_RULE);
+	ab = audit_log_start(audit_context(), GFP_KERNEL, AUDIT_INTEGRITY_RULE);
 	if (!ab)
 		goto out;
 

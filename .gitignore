@@ -63,6 +63,18 @@ modules.order
 /modules.builtin.modinfo
 
 #
+# debug related files, we don't want to ignore
+#
+!/initramfs.cpio.gz
+!/run_kernel.sh
+!/initramfs
+
+#
+# custom ignore
+#
+/rootfs.img
+
+#
 # RPM spec file (make rpm-pkg)
 #
 /*.spec

@@ -85,10 +85,15 @@ static int __init ima_add_boot_aggregate(void)
 		audit_cause = "alloc_entry";
 		goto err_out;
 	}
-
-	result = ima_store_template(entry, violation, NULL,
-				    boot_aggregate_name,
+	/* #ifdef CONFIG_IMA_FPCR */
+	/* 	result = ima_fpcr_store_template(entry, violation, NULL, */
+	/* 				    boot_aggregate_name, */
+	/* 				    CONFIG_IMA_MEASURE_PCR_IDX, FPCR_NULL_ID); */
+	/* #else */
+	result = ima_store_template(entry, violation, NULL, boot_aggregate_name,
 				    CONFIG_IMA_MEASURE_PCR_IDX);
+	/* #endif */
+
 	if (result < 0) {
 		ima_free_template_entry(entry);
 		audit_cause = "store_entry";
@@ -137,7 +142,19 @@ int __init ima_init(void)
 	rc = ima_init_digests();
 	if (rc != 0)
 		return rc;
-	rc = ima_add_boot_aggregate();	/* boot aggregate must be first entry */
+
+#ifdef CONFIG_IMA_FPCR
+
+	// pr_info("[fpcr test] init fpcr for history\n");
+	rc = ima_init_fpcr_structures();
+
+	if (rc != 0)
+		return rc;
+
+		// pr_info("[fpcr test] succeed init fpcr for history\n");
+#endif /* CONFIG_IMA_FPCR */
+
+	rc = ima_add_boot_aggregate(); /* boot aggregate must be first entry */
 	if (rc != 0)
 		return rc;
 

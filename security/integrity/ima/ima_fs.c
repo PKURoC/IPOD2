@@ -25,6 +25,17 @@
 
 #include "ima.h"
 
+#ifdef CONFIG_IMA_FPCR
+#include <linux/mount.h>
+#include <linux/string.h>
+#include <linux/types.h>
+#include <linux/list.h>
+#include <linux/fs.h>
+
+#include <linux/ktime.h>
+#include <linux/timekeeping.h>
+#endif /* CONFIG_IMA_FPCR */
+
 static DEFINE_MUTEX(ima_write_mutex);
 
 bool ima_canonical_fmt;
@@ -42,15 +53,14 @@ static int valid_policy = 1;
 static ssize_t ima_show_htable_value(char __user *buf, size_t count,
 				     loff_t *ppos, atomic_long_t *val)
 {
-	char tmpbuf[32];	/* greater than largest 'long' string value */
+	char tmpbuf[32]; /* greater than largest 'long' string value */
 	ssize_t len;
 
 	len = scnprintf(tmpbuf, sizeof(tmpbuf), "%li\n", atomic_long_read(val));
 	return simple_read_from_buffer(buf, count, ppos, tmpbuf, len);
 }
 
-static ssize_t ima_show_htable_violations(struct file *filp,
-					  char __user *buf,
+static ssize_t ima_show_htable_violations(struct file *filp, char __user *buf,
 					  size_t count, loff_t *ppos)
 {
 	return ima_show_htable_value(buf, count, ppos, &ima_htable.violations);
@@ -61,12 +71,10 @@ static const struct file_operations ima_htable_violations_ops = {
 	.llseek = generic_file_llseek,
 };
 
-static ssize_t ima_show_measurements_count(struct file *filp,
-					   char __user *buf,
+static ssize_t ima_show_measurements_count(struct file *filp, char __user *buf,
 					   size_t count, loff_t *ppos)
 {
 	return ima_show_htable_value(buf, count, ppos, &ima_htable.len);
-
 }
 
 static const struct file_operations ima_measurements_count_ops = {
@@ -82,7 +90,7 @@ static void *ima_measurements_start(struct seq_file *m, loff_t *pos)
 
 	/* we need a lock since pos could point beyond last element */
 	rcu_read_lock();
-	list_for_each_entry_rcu(qe, &ima_measurements, later) {
+	list_for_each_entry_rcu (qe, &ima_measurements, later) {
 		if (!l--) {
 			rcu_read_unlock();
 			return qe;
@@ -141,7 +149,8 @@ int ima_measurements_show(struct seq_file *m, void *v)
 		return -1;
 
 	template_name = (e->template_desc->name[0] != '\0') ?
-	    e->template_desc->name : e->template_desc->fmt;
+				e->template_desc->name :
+				      e->template_desc->fmt;
 
 	/*
 	 * 1st: PCRIndex
@@ -156,7 +165,7 @@ int ima_measurements_show(struct seq_file *m, void *v)
 
 	/* 3rd: template name size */
 	namelen = !ima_canonical_fmt ? strlen(template_name) :
-		cpu_to_le32(strlen(template_name));
+					     cpu_to_le32(strlen(template_name));
 	ima_putc(m, &namelen, sizeof(namelen));
 
 	/* 4th:  template name */
@@ -167,8 +176,9 @@ int ima_measurements_show(struct seq_file *m, void *v)
 		is_ima_template = true;
 
 	if (!is_ima_template) {
-		template_data_len = !ima_canonical_fmt ? e->template_data_len :
-			cpu_to_le32(e->template_data_len);
+		template_data_len = !ima_canonical_fmt ?
+					    e->template_data_len :
+						  cpu_to_le32(e->template_data_len);
 		ima_putc(m, &template_data_len, sizeof(e->template_data_len));
 	}
 
@@ -229,7 +239,8 @@ static int ima_ascii_measurements_show(struct seq_file *m, void *v)
 		return -1;
 
 	template_name = (e->template_desc->name[0] != '\0') ?
-	    e->template_desc->name : e->template_desc->fmt;
+				e->template_desc->name :
+				      e->template_desc->fmt;
 
 	/* 1st: PCR used (config option) */
 	seq_printf(m, "%2d ", e->pcr);
@@ -361,6 +372,7 @@ static struct dentry *ascii_runtime_measurements;
 static struct dentry *runtime_measurements_count;
 static struct dentry *violations;
 static struct dentry *ima_policy;
+static struct dentry *ima_fpcr;
 
 enum ima_fs_flags {
 	IMA_FS_BUSY,
@@ -368,14 +380,311 @@ enum ima_fs_flags {
 
 static unsigned long ima_fs_flags;
 
-#ifdef	CONFIG_IMA_READ_POLICY
+#ifdef CONFIG_IMA_READ_POLICY
 static const struct seq_operations ima_policy_seqops = {
-		.start = ima_policy_start,
-		.next = ima_policy_next,
-		.stop = ima_policy_stop,
-		.show = ima_policy_show,
+	.start = ima_policy_start,
+	.next = ima_policy_next,
+	.stop = ima_policy_stop,
+	.show = ima_policy_show,
 };
 #endif
+
+#ifdef CONFIG_IMA_FPCR
+/* SPLIT FILE */
+static void *ima_fpcr_measurements_start(struct seq_file *m, loff_t *pos)
+{
+	loff_t l = *pos;
+	struct ima_queue_entry *qe;
+
+	struct fpcr_list *node = m->private;
+
+	if (node == NULL) {
+		return NULL;
+	}
+
+	// printk("[fpcr test] show measurements log for %u", node->id);
+
+	/* we need a lock since pos could point beyond last element */
+	rcu_read_lock();
+	list_for_each_entry_rcu (qe, &node->measurements, later) {
+		if (!l--) {
+			rcu_read_unlock();
+			return qe;
+		}
+	}
+	rcu_read_unlock();
+	return NULL;
+}
+
+static void *ima_fpcr_measurements_next(struct seq_file *m, void *v,
+					loff_t *pos)
+{
+	struct ima_queue_entry *qe = v;
+
+	struct fpcr_list *node = m->private;
+	if (node == NULL) {
+		return NULL;
+	}
+
+	/* lock protects when reading beyond last element
+	 * against concurrent list-extension
+	 */
+	rcu_read_lock();
+	qe = list_entry_rcu(qe->later.next, struct ima_queue_entry, later);
+	rcu_read_unlock();
+	(*pos)++;
+
+	return (&qe->later == &node->measurements) ? NULL : qe;
+}
+
+static void ima_fpcr_measurements_stop(struct seq_file *m, void *v)
+{
+	struct ima_queue_entry *qe = v;
+	int i, mt_node, mt_parent;
+	struct fpcr_list *node = m->private;
+	if (node == NULL) {
+		// printk("[fpcr test] ima_fpcr_measurements_stop node is null");
+		return;
+	}
+
+	mt_node = node->tree_node_id;
+
+	rcu_read_lock();
+	if (node->state.finish) {
+		// printk("[fpcr test] ima_fpcr_measurements_stop node finish");
+		seq_puts(m, "\nfpcr: ");
+		for (i = 0; i < FPCR_DATA_SIZE; ++i) {
+			seq_printf(m, "%02x",
+				   merkle_tree_node_data(node->mt, mt_node)[i]);
+		}
+		seq_puts(
+			m,
+			"\nadditional hashes from merkle tree(down to top):\n");
+		while (mt_node > 1) {
+			mt_parent = mt_node / 2;
+			if (mt_node % 2) {
+				seq_puts(m, "L ");
+				for (i = 0; i < FPCR_DATA_SIZE; ++i) {
+					seq_printf(m, "%02x",
+						   merkle_tree_node_data(
+							   node->mt,
+							   mt_node - 1)[i]);
+				}
+			} else {
+				seq_puts(m, "R ");
+				for (i = 0; i < FPCR_DATA_SIZE; ++i) {
+					seq_printf(m, "%02x",
+						   merkle_tree_node_data(
+							   node->mt,
+							   mt_node + 1)[i]);
+				}
+			}
+			seq_puts(m, "\n");
+			mt_node = mt_parent;
+		}
+	}
+	rcu_read_unlock();
+}
+
+static int ima_fpcr_measurements_show(struct seq_file *m, void *v)
+{
+	/* the list never shrinks, so we don't need a lock here */
+	struct ima_queue_entry *qe = v;
+	struct ima_template_entry *e;
+	char *template_name;
+	int i;
+	int id;
+
+	struct fpcr_list *node = m->private;
+	if (node == NULL) {
+		return -1;
+	}
+
+	/* get entry */
+	e = qe->entry;
+	if (e == NULL)
+		return -1;
+
+	template_name = (e->template_desc->name[0] != '\0') ?
+				e->template_desc->name :
+				      e->template_desc->fmt;
+
+	if (node->mt) {
+		id = node->mt->id;
+	} else {
+		id = node->id;
+	}
+
+	/* 1st: PCR used (config option) */
+	seq_printf(m, "%2u ", id);
+
+	/* 2nd: SHA1 template hash */
+	ima_print_digest(m, e->digest, TPM_DIGEST_SIZE);
+
+	/* 3th:  template name */
+	seq_printf(m, " %s", template_name);
+
+	/* 4th:  template specific data */
+	for (i = 0; i < e->template_desc->num_fields; i++) {
+		seq_puts(m, " ");
+		if (e->template_data[i].len == 0)
+			continue;
+
+		e->template_desc->fields[i]->field_show(m, IMA_SHOW_ASCII,
+							&e->template_data[i]);
+	}
+	seq_puts(m, "\n");
+	return 0;
+}
+
+static const struct seq_operations ima_fpcr_measurements_seqops = {
+	.start = ima_fpcr_measurements_start,
+	.next = ima_fpcr_measurements_next,
+	.stop = ima_fpcr_measurements_stop,
+	.show = ima_fpcr_measurements_show
+};
+
+static int ima_fpcr_measurements_open(struct inode *inode, struct file *file)
+{
+	struct seq_file *p = NULL;
+	int ret = -1;
+
+	// 数据由securityfs_create_file时插入
+	struct fpcr_list *node = inode->i_private;
+
+	// seq_open函数会把seq_file指针赋值给file->private_data
+	ret = seq_open(file, &ima_fpcr_measurements_seqops);
+	if (ret != 0) {
+		return ret;
+	}
+
+	// 把private_data->private的值指向node
+	p = file->private_data;
+	p->private = node;
+	// printk("[fpcr test] allocate file's private data: %u", node->id);
+
+	return 0;
+}
+
+static const struct file_operations ima_fpcr_measurements_ops = {
+	.open = ima_fpcr_measurements_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = seq_release
+};
+
+int ima_create_measurement_log(struct fpcr_list *node)
+{
+	char file_name[20];
+
+	// printk("[fpcr test] enter ima_create_measurement_log");
+	if (!node) {
+		return -1;
+	}
+
+	snprintf(file_name, 20, "fpcr_%u", node->id);
+
+	node->measurement_log =
+		securityfs_create_file(file_name, S_IRUSR | S_IRGRP, ima_dir,
+				       node, &ima_fpcr_measurements_ops);
+	if (IS_ERR(node->measurement_log)) {
+		return -1;
+	}
+
+	return 0;
+}
+
+/* FPCR FILE */
+static void *ima_fpcr_list_measurements_start(struct seq_file *m, loff_t *pos)
+{
+	loff_t l = *pos;
+	struct merkle_tree *qe;
+	int i = 0;
+
+	/* we need a lock since pos could point beyond last element */
+	rcu_read_lock();
+
+	seq_puts(m, "history ");
+	for (i = 0; i < FPCR_DATA_SIZE; ++i) {
+		seq_printf(m, "%02x", fpcr_for_history.data[i]);
+	}
+	seq_puts(m, "\n");
+
+	list_for_each_entry_rcu (qe, &merkle_tree_list, list) {
+		if (!l--) {
+			rcu_read_unlock();
+			return qe;
+		}
+	}
+	rcu_read_unlock();
+	return NULL;
+}
+
+static void *ima_fpcr_list_measurements_next(struct seq_file *m, void *v,
+					     loff_t *pos)
+{
+	struct merkle_tree *qe = v;
+
+	/* lock protects when reading beyond last element
+	 * against concurrent list-extension
+	 */
+	rcu_read_lock();
+	qe = list_entry_rcu(qe->list.next, struct merkle_tree, list);
+	rcu_read_unlock();
+	(*pos)++;
+
+	return (&qe->list == &merkle_tree_list) ? NULL : qe;
+}
+
+static void ima_fpcr_list_measurements_stop(struct seq_file *m, void *v)
+{
+}
+
+static int ima_fpcr_list_measurements_show(struct seq_file *m, void *v)
+{
+	struct merkle_tree *qe = v;
+	int i;
+
+	if (qe) {
+		seq_printf(m, "%u ", qe->id);
+		for (i = 0; i < FPCR_DATA_SIZE; i++) {
+			seq_printf(m, "%02x", merkle_tree_root_data(qe)[i]);
+		}
+		// seq_puts(m, " ");
+		// for (i = 0; i < FPCR_DATA_SIZE; ++i) {
+		//     seq_printf(m, "%02x", qe->fpcr->secret[i]);
+		// }
+		seq_puts(m, "\n");
+	} else {
+		return -1;
+	}
+
+	return 0;
+}
+
+static const struct seq_operations ima_fpcr_list_measurements_seqops = {
+	.start = ima_fpcr_list_measurements_start,
+	.next = ima_fpcr_list_measurements_next,
+	.stop = ima_fpcr_list_measurements_stop,
+	.show = ima_fpcr_list_measurements_show
+};
+
+static int ima_fpcr_list_measurements_open(struct inode *inode,
+					   struct file *file)
+{
+	// printk("[fpcr test] file->file_dentry->d_name.name=%s",
+	// file->f_path.dentry->d_name.name);
+	return seq_open(file, &ima_fpcr_list_measurements_seqops);
+}
+
+static const struct file_operations ima_fpcr_list_measurements_ops = {
+	.open = ima_fpcr_list_measurements_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = seq_release
+};
+
+#endif /* CONFIG_IMA_FPCR */
 
 /*
  * ima_open_policy: sequentialize access to the policy file
@@ -383,7 +692,7 @@ static const struct seq_operations ima_policy_seqops = {
 static int ima_open_policy(struct inode *inode, struct file *filp)
 {
 	if (!(filp->f_flags & O_WRONLY)) {
-#ifndef	CONFIG_IMA_READ_POLICY
+#ifndef CONFIG_IMA_READ_POLICY
 		return -EACCES;
 #else
 		if ((filp->f_flags & O_ACCMODE) != O_RDONLY)
@@ -418,8 +727,8 @@ static int ima_release_policy(struct inode *inode, struct file *file)
 	}
 
 	pr_info("policy update %s\n", cause);
-	integrity_audit_msg(AUDIT_INTEGRITY_STATUS, NULL, NULL,
-			    "policy_update", cause, !valid_policy, 0);
+	integrity_audit_msg(AUDIT_INTEGRITY_STATUS, NULL, NULL, "policy_update",
+			    cause, !valid_policy, 0);
 
 	if (!valid_policy) {
 		ima_delete_rules();
@@ -454,43 +763,51 @@ int __init ima_fs_init(void)
 	if (IS_ERR(ima_dir))
 		return -1;
 
-	ima_symlink = securityfs_create_symlink("ima", NULL, "integrity/ima",
-						NULL);
+	ima_symlink =
+		securityfs_create_symlink("ima", NULL, "integrity/ima", NULL);
 	if (IS_ERR(ima_symlink))
 		goto out;
 
 	binary_runtime_measurements =
-	    securityfs_create_file("binary_runtime_measurements",
-				   S_IRUSR | S_IRGRP, ima_dir, NULL,
-				   &ima_measurements_ops);
+		securityfs_create_file("binary_runtime_measurements",
+				       S_IRUSR | S_IRGRP, ima_dir, NULL,
+				       &ima_measurements_ops);
 	if (IS_ERR(binary_runtime_measurements))
 		goto out;
 
 	ascii_runtime_measurements =
-	    securityfs_create_file("ascii_runtime_measurements",
-				   S_IRUSR | S_IRGRP, ima_dir, NULL,
-				   &ima_ascii_measurements_ops);
+		securityfs_create_file("ascii_runtime_measurements",
+				       S_IRUSR | S_IRGRP, ima_dir, NULL,
+				       &ima_ascii_measurements_ops);
 	if (IS_ERR(ascii_runtime_measurements))
 		goto out;
 
 	runtime_measurements_count =
-	    securityfs_create_file("runtime_measurements_count",
-				   S_IRUSR | S_IRGRP, ima_dir, NULL,
-				   &ima_measurements_count_ops);
+		securityfs_create_file("runtime_measurements_count",
+				       S_IRUSR | S_IRGRP, ima_dir, NULL,
+				       &ima_measurements_count_ops);
 	if (IS_ERR(runtime_measurements_count))
 		goto out;
 
 	violations =
-	    securityfs_create_file("violations", S_IRUSR | S_IRGRP,
-				   ima_dir, NULL, &ima_htable_violations_ops);
+		securityfs_create_file("violations", S_IRUSR | S_IRGRP, ima_dir,
+				       NULL, &ima_htable_violations_ops);
 	if (IS_ERR(violations))
 		goto out;
 
-	ima_policy = securityfs_create_file("policy", POLICY_FILE_FLAGS,
-					    ima_dir, NULL,
-					    &ima_measure_policy_ops);
+	ima_policy =
+		securityfs_create_file("policy", POLICY_FILE_FLAGS, ima_dir,
+				       NULL, &ima_measure_policy_ops);
 	if (IS_ERR(ima_policy))
 		goto out;
+
+#ifdef CONFIG_IMA_FPCR
+	ima_fpcr =
+		securityfs_create_file("fpcr_list", S_IRUSR | S_IRGRP, ima_dir,
+				       NULL, &ima_fpcr_list_measurements_ops);
+	if (IS_ERR(ima_fpcr))
+		goto out;
+#endif /* CONFIG_IMA_FPCR */
 
 	return 0;
 out:
@@ -501,5 +818,6 @@ out:
 	securityfs_remove(ima_symlink);
 	securityfs_remove(ima_dir);
 	securityfs_remove(ima_policy);
+	securityfs_remove(ima_fpcr);
 	return -1;
 }
