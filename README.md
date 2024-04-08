@@ -5,7 +5,7 @@ This repository contains the Proof-of-concept implementation for the paper
   
 IPOD2 is an irrecoverable and verifiable deletion scheme for outsourced data. It utilizes the overwriting-based deletion method to implement outsourced data deletion and extends the Integrity Measurement Architecture (IMA) to measure the operations in the deletion process. The measurement results are protected by the Trusted Platform Module (TPM) and verifiable for users. 
 
-# Test
+# Tested Setup
 ============
 
 There are several guides for kernel developers and users. These guides can be rendered in a number of formats, like HTML and PDF. Please read Documentation/admin-guide/README.rst first.
