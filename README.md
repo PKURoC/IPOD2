@@ -35,3 +35,8 @@ Custom ima policy is located in /etc/ima_policy(the path in the qemu), and it is
 fpcr module
 ------------
 Custom the File-based Platform Configuration Register module
+
+
+## Contact
+
+If there are questions regarding the PoC implementation, please send an email to `chenzhaoyu@stu.pku.edu.cn`.
